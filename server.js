@@ -19,6 +19,10 @@ const BASE_URL = process.env.BASE_URL;
 const PESAPAL_IPN_ID = process.env.PESAPAL_IPN_ID;
 const PORT = process.env.PORT || 3000;
 
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
+
 // ======================================
 // TOKEN CACHE
 // ======================================
