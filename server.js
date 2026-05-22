@@ -1,3 +1,6 @@
+// ======================================
+// LOAD ENV VARIABLES
+// ======================================
 require("dotenv").config();
 
 const express = require("express");
@@ -5,35 +8,27 @@ const axios = require("axios");
 const cors = require("cors");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
 // ======================================
 // ENV VARIABLES
 // ======================================
-
 const PESAPAL_KEY = process.env.PESAPAL_KEY;
 const PESAPAL_SECRET = process.env.PESAPAL_SECRET;
-const BASE_URL = process.env.BASE_URL;
+const BASE_URL = process.env.BASE_URL || "https://lssa.onrender.com";
 const PESAPAL_IPN_ID = process.env.PESAPAL_IPN_ID;
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-});
 
 // ======================================
 // TOKEN CACHE
 // ======================================
-
 let cachedToken = null;
 let tokenExpiry = null;
 
 // ======================================
 // GET PESAPAL TOKEN
 // ======================================
-
 async function getToken() {
     const now = Date.now();
 
@@ -58,56 +53,22 @@ async function getToken() {
 // ======================================
 // HOME ROUTE
 // ======================================
-
 app.get("/", (req, res) => {
     res.send("LSSA Pesapal Backend Running");
 });
 
 // ======================================
-// REGISTER IPN (RUN ONCE)
-// ======================================
-
-app.get("/register-ipn", async (req, res) => {
-    try {
-        const token = await getToken();
-
-        const response = await axios.post(
-            "https://pay.pesapal.com/v3/api/URLSetup/RegisterIPN",
-            {
-                url: `${BASE_URL}/pesapal-webhook`,
-                ipn_notification_type: "POST"
-            },
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            }
-        );
-
-        res.json(response.data);
-
-    } catch (err) {
-        console.log(err.response?.data || err.message);
-        res.status(500).json({ error: "IPN registration failed" });
-    }
-});
-
-// ======================================
 // CREATE PAYMENT
 // ======================================
-
 app.post("/pay", async (req, res) => {
     try {
         const { account, amount, phone } = req.body;
 
         if (!account || !amount || !phone) {
-            return res.status(400).json({
-                error: "Missing account, amount, or phone"
-            });
+            return res.status(400).json({ error: "Missing account, amount, or phone" });
         }
 
         const token = await getToken();
-
         const orderId = "LSSA_" + Date.now();
 
         const response = await axios.post(
@@ -117,11 +78,8 @@ app.post("/pay", async (req, res) => {
                 currency: "UGX",
                 amount: Number(amount),
                 description: `LSSA Payment - ${account}`,
-
                 callback_url: `${BASE_URL}/payment-success`,
-
                 notification_id: PESAPAL_IPN_ID,
-
                 billing_address: {
                     phone_number: phone,
                     country_code: "UG"
@@ -139,9 +97,8 @@ app.post("/pay", async (req, res) => {
             orderId,
             redirect_url: response.data.redirect_url
         });
-
     } catch (err) {
-        console.log(err.response?.data || err.message);
+        console.error(err.response?.data || err.message);
         res.status(500).json({ error: "Payment creation failed" });
     }
 });
@@ -149,14 +106,11 @@ app.post("/pay", async (req, res) => {
 // ======================================
 // PAYMENT SUCCESS CALLBACK
 // ======================================
-
 app.get("/payment-success", (req, res) => {
     const orderTrackingId = req.query.OrderTrackingId;
     const merchantRef = req.query.OrderMerchantReference;
 
-    console.log("SUCCESS CALLBACK:");
-    console.log("Tracking ID:", orderTrackingId);
-    console.log("Merchant Ref:", merchantRef);
+    console.log("SUCCESS CALLBACK:", { orderTrackingId, merchantRef });
 
     res.send(`
         <h2>Payment Received</h2>
@@ -167,56 +121,34 @@ app.get("/payment-success", (req, res) => {
 // ======================================
 // PESAPAL WEBHOOK (IPN)
 // ======================================
-
 app.post("/pesapal-webhook", async (req, res) => {
     try {
         console.log("WEBHOOK RECEIVED:", req.body);
 
-        const OrderTrackingId =
-            req.body.OrderTrackingId ||
-            req.query.OrderTrackingId;
-
-        const OrderMerchantReference =
-            req.body.OrderMerchantReference ||
-            req.query.OrderMerchantReference;
+        const OrderTrackingId = req.body.OrderTrackingId || req.query.OrderTrackingId;
+        const OrderMerchantReference = req.body.OrderMerchantReference || req.query.OrderMerchantReference;
 
         if (!OrderTrackingId) {
-            return res.status(400).json({
-                error: "Missing OrderTrackingId"
-            });
+            return res.status(400).json({ error: "Missing OrderTrackingId" });
         }
 
         const token = await getToken();
-
         const statusRes = await axios.get(
             `https://pay.pesapal.com/v3/api/Transactions/GetTransactionStatus?orderTrackingId=${OrderTrackingId}`,
-            {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
-            }
+            { headers: { Authorization: `Bearer ${token}` } }
         );
 
         const paymentStatus = statusRes.data.payment_status_description;
-
         console.log("PAYMENT STATUS:", paymentStatus);
 
         if (paymentStatus?.toLowerCase() === "completed") {
             console.log("PAYMENT SUCCESSFUL");
-
-            // 👉 HERE YOU UPDATE YOUR DATABASE (Supabase, Firebase, etc.)
-            // Example:
-            //
-            // await supabase.from("payments").insert({
-            //     order_id: OrderMerchantReference,
-            //     status: "paid"
-            // });
+            // TODO: Update your Supabase database here
         }
 
         res.json({ message: "IPN processed" });
-
     } catch (err) {
-        console.log(err.response?.data || err.message);
+        console.error(err.response?.data || err.message);
         res.status(500).json({ error: "Webhook error" });
     }
 });
@@ -224,7 +156,6 @@ app.post("/pesapal-webhook", async (req, res) => {
 // ======================================
 // START SERVER
 // ======================================
-
 app.listen(PORT, () => {
     console.log(`LSSA server running on port ${PORT}`);
 });
